@@ -17,6 +17,7 @@ function App() {
   const [removeUser, setRemoveUser] = useState("");
   const [removeFriend, setRemoveFriend] = useState("");
   const [loading, setLoading] = useState(false);
+  const [newUserName, setNewUserName] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
 
   useEffect(() => {
@@ -40,6 +41,58 @@ function App() {
       console.error("Failed to load data:", error);
     }
     setLoading(false);
+  };
+
+  const handleCreateUser = async () => {
+    const name = newUserName && newUserName.trim();
+    if (!name) return alert("Nhập tên user");
+    try {
+      const res = await fetch(`${API}/users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const j = await res.json();
+      if (res.ok) {
+        setNewUserName("");
+        await loadData();
+        setAuthor(j.name);
+        alert(`Tạo user ${j.name} thành công`);
+      } else {
+        alert(j.error || "Không thể tạo user");
+      }
+    } catch (err) {
+      console.error("Create user failed", err);
+      alert("Lỗi khi tạo user");
+    }
+  };
+
+  const handleDeleteUser = async (name) => {
+    if (!name) return alert("Chọn user cần xóa");
+    if (
+      !confirm(
+        `Bạn có chắc muốn xóa user "${name}"? Điều này sẽ xóa mọi mối liên hệ của user.`
+      )
+    )
+      return;
+    try {
+      const res = await fetch(`${API}/delete-user`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const j = await res.json();
+      if (res.ok) {
+        alert("Đã xóa user");
+        setAuthor("");
+        await loadData();
+      } else {
+        alert(j.error || "Không thể xóa user");
+      }
+    } catch (err) {
+      console.error("Delete user failed", err);
+      alert("Lỗi khi xóa user");
+    }
   };
 
   const handlePost = async () => {
@@ -84,14 +137,19 @@ function App() {
   const handleRemoveFriend = async () => {
     if (!removeUser || !removeFriend || removeUser === removeFriend) return;
     try {
-      await fetch(`${API}/remove-friend`, {
+      const res = await fetch(`${API}/remove-friend`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user: removeUser, friend: removeFriend }),
       });
-      alert(`${removeUser} đã xóa ${removeFriend} khỏi danh sách bạn bè! 💔`);
-      setRemoveUser("");
-      setRemoveFriend("");
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        alert(j.error || "Không thể xóa — mối quan hệ không tồn tại");
+      } else {
+        alert(`${removeUser} đã xóa ${removeFriend} khỏi danh sách bạn bè! 💔`);
+        setRemoveUser("");
+        setRemoveFriend("");
+      }
     } catch (error) {
       console.error("Failed to remove friend:", error);
     }
@@ -170,15 +228,26 @@ function App() {
       <div className="layout">
         <aside className="sidebar">
           <div className="profile card">
-            <div className="avatar">
-              {author ? author[0].toUpperCase() : "U"}
-            </div>
-            <div className="info">
-              <strong>{author || "Khách"}</strong>
-              <div className="muted">
-                {author ? "Thành viên hoạt động" : "Vui lòng chọn tài khoản"}
+            <div className="profile-left">
+              <div className="avatar">
+                {author ? author[0].toUpperCase() : "U"}
+              </div>
+              <div className="info">
+                <strong>{author || "Khách"}</strong>
+                <div className="muted">
+                  {author ? "Thành viên hoạt động" : "Vui lòng chọn tài khoản"}
+                </div>
               </div>
             </div>
+            {author && (
+              <button
+                className="delete-button"
+                onClick={() => handleDeleteUser(author)}
+                aria-label={`Xóa tài khoản ${author}`}
+              >
+                Xóa tài khoản
+              </button>
+            )}
           </div>
 
           <nav className="menu card">
@@ -195,6 +264,39 @@ function App() {
               Cài đặt
             </a>
           </nav>
+
+          {/* Create User Section */}
+          <div className="menu card">
+            <h4 style={{ margin: "0 0 12px", fontSize: "16px" }}>
+              Tạo tài khoản
+            </h4>
+            <input
+              value={newUserName}
+              onChange={(e) => setNewUserName(e.target.value)}
+              placeholder="Nhập tên (ví dụ: Duc)"
+              style={{
+                width: "100%",
+                padding: "10px",
+                borderRadius: "8px",
+                border: "2px solid #e2e8f0",
+                marginBottom: "10px",
+              }}
+            />
+            <button
+              onClick={handleCreateUser}
+              style={{
+                width: "100%",
+                padding: "10px",
+                background: "var(--primary)",
+                color: "white",
+                border: "none",
+                borderRadius: "8px",
+                cursor: "pointer",
+              }}
+            >
+              Tạo tài khoản
+            </button>
+          </div>
 
           {/* Add Friend Section */}
           <div className="menu card">
@@ -347,7 +449,7 @@ function App() {
               type="text"
               value={hashtags}
               onChange={(e) => setHashtags(e.target.value)}
-              placeholder="Thêm hashtags (cách nhau bằng dấu phẩy): webdev, nodejs, reactjs"
+              placeholder="Thêm Tag (cách nhau bằng dấu phẩy): webdev, nodejs, reactjs"
               disabled={!author}
               style={{
                 width: "100%",
@@ -434,7 +536,26 @@ function App() {
                   </div>
                 )}
                 <div className="post-footer">
-                  <div className="likes">{p.likes} lượt thích</div>
+                  <div
+                    className="meta-left"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                    }}
+                  >
+                    <div className="likes">{p.likes} lượt thích</div>
+                    {p.likedBy && p.likedBy.length > 0 && (
+                      <div className="post-likers">
+                        <span className="liker-list">
+                          {p.likedBy.slice(0, 3).join(", ")}
+                          {p.likedBy.length > 3
+                            ? ` +${p.likedBy.length - 3} khác`
+                            : ""}
+                        </span>
+                      </div>
+                    )}
+                  </div>
                   <div style={{ display: "flex", gap: "8px" }}>
                     <button
                       className="like"
@@ -498,197 +619,157 @@ function App() {
         </main>
 
         <aside className="rightcol">
+          {/* Online Users */}
           <div className="card">
-            <h4>Người dùng ({filteredUsers.length})</h4>
+            <h4>
+              <span className="icon">👥</span>
+              Người dùng ({filteredUsers.length})
+            </h4>
             <ul className="user-list">
               {filteredUsers.map((u) => (
-                <li key={u}>
-                  {u}
-                  {u === author && (
-                    <span
-                      style={{
-                        color: "#10b981",
-                        fontSize: "12px",
-                        fontWeight: "bold",
-                      }}
-                    >
-                      • Online
-                    </span>
-                  )}
+                <li key={u} className="user-item">
+                  <div className="user-avatar">{u[0].toUpperCase()}</div>
+                  <div className="user-info">
+                    <span className="user-name">{u}</span>
+                    {u === author && (
+                      <span className="status-online">
+                        <span className="dot"></span>
+                        Đang hoạt động
+                      </span>
+                    )}
+                  </div>
+                  {u !== author && <button className="btn-message">💬</button>}
                 </li>
               ))}
             </ul>
           </div>
 
-          <div className="card">
-            <h4 style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              📊 Thống kê
+          {/* Network Stats */}
+          <div className="card stats-card">
+            <h4>
+              <span className="icon">📊</span>
+              Thống kê mạng
             </h4>
-            <div
-              style={{ display: "flex", flexDirection: "column", gap: "12px" }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>Tổng bài viết:</span>
-                <strong>{posts.length}</strong>
+            <div className="stats-grid">
+              <div className="stat-item">
+                <div className="stat-number">{posts.length}</div>
+                <div className="stat-label">Bài viết</div>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>Tổng thích:</span>
-                <strong>{posts.reduce((sum, p) => sum + p.likes, 0)}</strong>
+              <div className="stat-item">
+                <div className="stat-number">
+                  {posts.reduce((sum, p) => sum + p.likes, 0)}
+                </div>
+                <div className="stat-label">Lượt thích</div>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>Người dùng:</span>
-                <strong>{users.length}</strong>
+              <div className="stat-item">
+                <div className="stat-number">{users.length}</div>
+                <div className="stat-label">Thành viên</div>
+              </div>
+              <div className="stat-item">
+                <div className="stat-number">{trendingHashtags.length}</div>
+                <div className="stat-label">Hashtags</div>
               </div>
             </div>
           </div>
 
+          {/* Trending Topics */}
           <div className="card">
-            <h4 style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              🔥 Trending
+            <h4>
+              <span className="icon">🔥</span>
+              Xu hướng
             </h4>
-            <div
-              style={{ display: "flex", flexDirection: "column", gap: "8px" }}
-            >
+            <div className="trending-list">
               {trendingHashtags.length > 0 ? (
-                trendingHashtags.map((item, idx) => (
+                trendingHashtags.slice(0, 5).map((item, idx) => (
                   <div key={idx} className="trending-item">
-                    <div style={{ fontWeight: "600", color: "#6366f1" }}>
-                      {item.hashtag}
+                    <div className="trend-rank">#{idx + 1}</div>
+                    <div className="trend-content">
+                      <div className="trend-tag">#{item.hashtag}</div>
+                      <div className="trend-count">
+                        {item.postCount} bài viết
+                      </div>
                     </div>
-                    <div style={{ fontSize: "12px", color: "#64748b" }}>
-                      {item.postCount} bài viết
-                    </div>
+                    <div className="trend-chart">📈</div>
                   </div>
                 ))
               ) : (
-                <div
-                  style={{
-                    fontSize: "14px",
-                    color: "#64748b",
-                    textAlign: "center",
-                    padding: "16px",
-                  }}
-                >
-                  Chưa có hashtags nào. Hãy thêm hashtag khi đăng bài!
+                <div className="empty-state">
+                  <div className="empty-icon">📱</div>
+                  <div className="empty-text">Chưa có xu hướng</div>
+                  <div className="empty-subtext">
+                    Hãy thêm hashtag khi đăng bài!
+                  </div>
                 </div>
               )}
             </div>
           </div>
 
+          {/* Friend Suggestions */}
           <div className="card">
-            <h4 style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              👋 Gợi ý kết bạn
+            <h4>
+              <span className="icon">👋</span>
+              Gợi ý kết bạn
             </h4>
-            <div
-              style={{ display: "flex", flexDirection: "column", gap: "12px" }}
-            >
+            <div className="suggestions-list">
               {["Alex Johnson", "Sarah Chen", "Mike Wilson", "Lisa Park"].map(
                 (name, i) => (
-                  <div
-                    key={name}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "12px",
-                    }}
-                  >
+                  <div key={name} className="suggestion-item">
                     <div
+                      className="suggestion-avatar"
                       style={{
-                        width: "40px",
-                        height: "40px",
-                        borderRadius: "12px",
                         background: [
-                          "#ff6b6b",
-                          "#4ecdc4",
-                          "#45b7d1",
-                          "#f7b731",
+                          "linear-gradient(135deg, #667eea, #764ba2)",
+                          "linear-gradient(135deg, #f093fb, #f5576c)",
+                          "linear-gradient(135deg, #4facfe, #00f2fe)",
+                          "linear-gradient(135deg, #ffecd2, #fcb69f)",
                         ][i],
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        color: "white",
-                        fontWeight: "bold",
-                        fontSize: "14px",
                       }}
                     >
                       {name[0]}
                     </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: "600", fontSize: "14px" }}>
-                        {name}
-                      </div>
-                      <div style={{ fontSize: "12px", color: "#64748b" }}>
-                        {
-                          [
-                            "12 bạn chung",
-                            "8 bạn chung",
-                            "15 bạn chung",
-                            "5 bạn chung",
-                          ][i]
-                        }
+                    <div className="suggestion-info">
+                      <div className="suggestion-name">{name}</div>
+                      <div className="suggestion-meta">
+                        {[12, 8, 15, 5][i]} bạn chung •{" "}
+                        {["Designer", "Developer", "Manager", "Writer"][i]}
                       </div>
                     </div>
-                    <button
-                      style={{
-                        padding: "4px 12px",
-                        fontSize: "12px",
-                        borderRadius: "20px",
-                        border: "1px solid #6366f1",
-                        color: "#6366f1",
-                        background: "white",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Kết bạn
-                    </button>
+                    <button className="btn-connect">Kết bạn</button>
                   </div>
                 )
               )}
             </div>
+            <button className="see-more-btn">Xem tất cả gợi ý</button>
           </div>
 
+          {/* Quick Actions */}
           <div className="card">
-            <h4 style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              ⚡ Hoạt động gần đây
+            <h4>
+              <span className="icon">⚡</span>
+              Hành động nhanh
             </h4>
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "10px",
-                fontSize: "14px",
-              }}
-            >
-              <div
-                style={{ display: "flex", alignItems: "center", gap: "8px" }}
-              >
-                <span style={{ color: "#10b981" }}>✓</span>
-                <span>
-                  Bạn đã thích bài viết của <strong>Alice</strong>
-                </span>
-              </div>
-              <div
-                style={{ display: "flex", alignItems: "center", gap: "8px" }}
-              >
-                <span style={{ color: "#f59e0b" }}>🔔</span>
-                <span>
-                  <strong>Bob</strong> đã bình luận bài viết của bạn
-                </span>
-              </div>
-              <div
-                style={{ display: "flex", alignItems: "center", gap: "8px" }}
-              >
-                <span style={{ color: "#6366f1" }}>👥</span>
-                <span>
-                  <strong>Charlie</strong> đã kết bạn với bạn
-                </span>
-              </div>
-              <div
-                style={{ display: "flex", alignItems: "center", gap: "8px" }}
-              >
-                <span style={{ color: "#ec4899" }}>❤️</span>
-                <span>Bài viết của bạn nhận được 5 lượt thích</span>
-              </div>
+            <div className="quick-actions">
+              <button className="action-btn primary">
+                <span className="action-icon">✏️</span>
+                <div className="action-content">
+                  <div className="action-title">Viết bài</div>
+                  <div className="action-subtitle">Chia sẻ suy nghĩ</div>
+                </div>
+              </button>
+              <button className="action-btn">
+                <span className="action-icon">📷</span>
+                <div className="action-content">
+                  <div className="action-title">Thêm ảnh</div>
+                  <div className="action-subtitle">Upload hình ảnh</div>
+                </div>
+              </button>
+              <button className="action-btn">
+                <span className="action-icon">🎯</span>
+                <div className="action-content">
+                  <div className="action-title">Sự kiện</div>
+                  <div className="action-subtitle">Tạo hoạt động</div>
+                </div>
+              </button>
             </div>
           </div>
 

@@ -42,11 +42,17 @@ app.post("/remove-friend", async (req, res) => {
   const { user, friend } = req.body;
   const session = driver.session();
   try {
+    // Kiểm tra trước xem relationship có tồn tại không
+    const found = await session.run(
+      `MATCH (a:User {name:$user})-[r:FRIEND]->(b:User {name:$friend}) RETURN r LIMIT 1`,
+      { user, friend }
+    );
+    if (found.records.length === 0) {
+      return res.status(404).json({ error: "Quan hệ bạn bè không tồn tại" });
+    }
+
     await session.run(
-      `
-      MATCH (a:User {name:$user})-[r:FRIEND]->(b:User {name:$friend})
-      DELETE r
-      `,
+      `MATCH (a:User {name:$user})-[r:FRIEND]->(b:User {name:$friend}) DELETE r`,
       { user, friend }
     );
     res.json({ success: true });
@@ -192,9 +198,51 @@ app.post("/delete-post", async (req, res) => {
     await session.run(
       `
       MATCH (u:User {name:$author})-[:POSTED]->(p:Post {title:$title})
+      OPTIONAL MATCH (p)-[:HAS_TAG]->(t:Tag)
       DETACH DELETE p
+      WITH t
+      WHERE NOT (t)<-[:HAS_TAG]-(:Post)
+      DELETE t
       `,
       { author, title }
+    );
+    res.json({ success: true });
+  } finally {
+    await session.close();
+  }
+});
+
+// Tạo user mới (idempotent — dùng MERGE để không tạo trùng)
+app.post("/users", async (req, res) => {
+  const { name } = req.body;
+  if (!name || !name.trim())
+    return res.status(400).json({ error: "Tên user bắt buộc" });
+  const session = driver.session();
+  try {
+    const result = await session.run(
+      `MERGE (u:User {name:$name}) RETURN u.name AS name`,
+      { name: name.trim() }
+    );
+    const created = result.records[0].get("name");
+    res.json({ success: true, name: created });
+  } finally {
+    await session.close();
+  }
+});
+
+// Xóa user (dùng DETACH DELETE để gỡ tất cả relationship trước khi xóa node)
+app.post("/delete-user", async (req, res) => {
+  const { name } = req.body;
+  if (!name || !name.trim())
+    return res.status(400).json({ error: "Tên user bắt buộc" });
+  const session = driver.session();
+  try {
+    await session.run(
+      `
+      MATCH (u:User {name:$name})
+      DETACH DELETE u
+      `,
+      { name: name.trim() }
     );
     res.json({ success: true });
   } finally {
